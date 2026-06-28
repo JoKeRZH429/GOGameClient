@@ -729,6 +729,12 @@ void RecorderClass::stopRecording() {
 				absoluteReplayPath.concat(m_fileName);
 
 				pOnlineServicesMgr->CommitReplay(absoluteReplayPath);
+
+				if (TheGlobalData->m_exportStats)
+				{
+					pOnlineServicesMgr->CommitGameStats(m_fileName);
+					TheWritableGlobalData->m_exportStats = FALSE;
+				}
 			}
 		}
 #endif

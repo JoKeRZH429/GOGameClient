@@ -51,7 +51,9 @@
 #include "Common/Radar.h"
 #include "Common/RandomValue.h"
 #include "Common/Recorder.h"
+#include "Common/OptionPreferences.h"
 #include "Common/StatsCollector.h"
+#include "Common/StatsExporter.h"
 #include "Common/ThingFactory.h"
 #include "Common/Team.h"
 #include "Common/ThingTemplate.h"
@@ -2438,6 +2440,17 @@ void GameLogic::tryStartNewGame( Bool loadingSaveGame )
 			TheStatsCollector->reset();
 		}
 
+		TheWritableGlobalData->m_exportStats = FALSE;
+		if (m_gameMode == GAME_INTERNET && TheGameInfo != nullptr) 
+		{
+			OptionPreferences optionPref;
+			if (optionPref.getExportGameStatsEnabled())
+			{
+				TheWritableGlobalData->m_exportStats = TRUE;
+				StatsExporterBeginRecording();
+			}
+		}
+
 		///		ShowControlBar(FALSE);
 
 				// explicitly set the Control bar to Observer Mode
@@ -4011,6 +4024,8 @@ void GameLogic::update()
 	{
 		TheStatsCollector->update();
 	}
+		
+	StatsExporterCollectSnapshot();
 
 	// Update the Recorder
 	{

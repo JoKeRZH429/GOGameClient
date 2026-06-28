@@ -407,8 +407,9 @@ struct MatchOutcomeResponse
 {
     std::string screenshot_url;
 	std::string replay_url;
+    std::string stats_url;
 
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(MatchOutcomeResponse, screenshot_url, replay_url)
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(MatchOutcomeResponse, screenshot_url, replay_url, stats_url)
 };
 
 void NGMP_OnlineServices_StatsInterface::CommitMyOutcome(ScoreKeeper* pScoreKeeper, bool bWon)
@@ -477,6 +478,7 @@ void NGMP_OnlineServices_StatsInterface::CommitMyOutcome(ScoreKeeper* pScoreKeep
 
                         NGMP_OnlineServicesManager::GetInstance()->SetScreenshotS3URI_EndMatch(matchOutcomeResp.screenshot_url.c_str());
                         NGMP_OnlineServicesManager::GetInstance()->SetScreenshotS3URI_Replay(matchOutcomeResp.replay_url.c_str());
+                        NGMP_OnlineServicesManager::GetInstance()->SetGameStatsS3URI(matchOutcomeResp.stats_url.c_str());
 					}
                     catch (nlohmann::json::exception&)
                     {

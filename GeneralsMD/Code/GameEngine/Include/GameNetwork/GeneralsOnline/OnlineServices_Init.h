@@ -361,6 +361,7 @@ public:
 	static void AttemptLoadSteam();
 
 	void CommitReplay(AsciiString absoluteReplayPath);
+	void CommitGameStats(AsciiString replayFileName);
 
 	static std::recursive_mutex m_singletonMutex;
 	
@@ -560,16 +561,30 @@ public:
 		m_strCacheReplay_S3URI = std::string(szURI);
     }
 
+    void SetGameStatsS3URI(const char* szURI)
+    {
+        std::scoped_lock<std::mutex> ssLock(m_ScreenshotMutex);
+        m_strCacheStats_S3URI = std::string(szURI);
+    }
+
+    void CacheStatsBytes(std::vector<uint8_t>& vecData)
+    {
+        std::scoped_lock<std::mutex> ssLock(m_ScreenshotMutex);
+        m_vecCachedStatsBytes = vecData;
+    }
+
 private:
 	// NOTE: Accessed from multiple threads, dont access directly, use helpers above to lock
     std::string m_strCachedScreenshot_MatchStart_S3URI;
     std::string m_strCachedScreenshot_MatchEnd_S3URI;
     std::string m_strCacheReplay_S3URI;
+    std::string m_strCacheStats_S3URI;
 
     // screenshots / replays that require caching
     std::vector<uint8_t> m_vecCachedScreenshotBytes_MatchStart;
     std::vector<uint8_t> m_vecCachedScreenshotBytes_MatchEnd;
     std::vector<uint8_t> m_vecCachedReplayBytes;
+    std::vector<uint8_t> m_vecCachedStatsBytes;
 
 	// main thread SS Upload
 	static std::mutex m_ScreenshotMutex;

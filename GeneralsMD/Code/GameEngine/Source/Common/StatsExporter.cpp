@@ -18,7 +18,6 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 
 #include "Common/StatsExporter.h"
-#include "Common/StatsUploader.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "Common/PlayerTemplate.h"
@@ -35,8 +34,11 @@
 #include <stdio.h>
 #include <zlib.h>
 #include <vector>
+#include <thread>
+#include <mutex>
 
 #include "GameNetwork/GeneralsOnline/json.hpp"
+#include "GameNetwork/GeneralsOnline/OnlineServices_Init.h"
 
 using ordered_json = nlohmann::ordered_json;
 
@@ -221,6 +223,9 @@ struct StatsExporterState
 };
 
 static StatsExporterState s_state;
+
+static std::vector<std::thread*> s_statsThreads;
+static std::mutex s_statsThreadsMutex;
 
 //-----------------------------------------------------------------------------
 
@@ -858,4 +863,122 @@ void ExportGameStatsJSONToDisk(const AsciiString& replayDir, const AsciiString& 
 
 	s_state.resetData();
 	s_state.exportingActive = FALSE;
+}
+
+//-----------------------------------------------------------------------------
+
+static bool gzipCompressToMemory(const std::string &input, std::vector<uint8_t> &outCompressed)
+{
+	outCompressed.clear();
+
+	static const uint8_t gzipHeader[10] = { 0x1F, 0x8B, Z_DEFLATED, 0, 0, 0, 0, 0, 0, 0xFF };
+
+	z_stream stream;
+	memset(&stream, 0, sizeof(stream));
+
+	int initResult = deflateInit2(
+		&stream,
+		Z_DEFAULT_COMPRESSION,
+		Z_DEFLATED,
+		-15,
+		8,
+		Z_DEFAULT_STRATEGY);
+
+	if (initResult != Z_OK)
+		return false;
+
+	// Worst-case bound per zlib's own formula (source + 0.1% + 12 bytes),
+	// plus the gzip header/trailer we add ourselves.
+	uLong bound = static_cast<uLong>(input.size()) + (static_cast<uLong>(input.size()) >> 9) + 12 + sizeof(gzipHeader) + 8;
+	outCompressed.resize(static_cast<size_t>(bound));
+
+	memcpy(outCompressed.data(), gzipHeader, sizeof(gzipHeader));
+
+	stream.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(input.data()));
+	stream.avail_in = static_cast<uInt>(input.size());
+	stream.next_out = reinterpret_cast<Bytef *>(outCompressed.data() + sizeof(gzipHeader));
+	stream.avail_out = static_cast<uInt>(outCompressed.size() - sizeof(gzipHeader));
+
+	int deflateResult = deflate(&stream, Z_FINISH);
+	if (deflateResult != Z_STREAM_END)
+	{
+		deflateEnd(&stream);
+		outCompressed.clear();
+		return false;
+	}
+
+	size_t compressedLen = sizeof(gzipHeader) + stream.total_out;
+	deflateEnd(&stream);
+
+	outCompressed.resize(compressedLen + 8);
+	uLong crc = crc32(0L, reinterpret_cast<const Bytef *>(input.data()), static_cast<uInt>(input.size()));
+	uint8_t *trailer = outCompressed.data() + compressedLen;
+	trailer[0] = static_cast<uint8_t>(crc & 0xFF);
+	trailer[1] = static_cast<uint8_t>((crc >> 8) & 0xFF);
+	trailer[2] = static_cast<uint8_t>((crc >> 16) & 0xFF);
+	trailer[3] = static_cast<uint8_t>((crc >> 24) & 0xFF);
+	uLong isize = static_cast<uLong>(input.size()) & 0xFFFFFFFFu;
+	trailer[4] = static_cast<uint8_t>(isize & 0xFF);
+	trailer[5] = static_cast<uint8_t>((isize >> 8) & 0xFF);
+	trailer[6] = static_cast<uint8_t>((isize >> 16) & 0xFF);
+	trailer[7] = static_cast<uint8_t>((isize >> 24) & 0xFF);
+
+	return true;
+}
+
+//-----------------------------------------------------------------------------
+
+void ExportGameStatsToMemory(const AsciiString& replayFileName)
+{
+	// Engine objects aren't thread-safe, so assembly stays here. The resulting
+	// tree is just copied strings/numbers, so it's safe to move into the thread.
+	std::optional<ordered_json> root = buildGameStatsJson(replayFileName);
+
+	s_state.resetData();
+	s_state.exportingActive = FALSE;
+
+	if (!root.has_value())
+	{
+		NetworkLog(ELogVerbosity::LOG_RELEASE, "[stats] Skipping in-memory export: no stats data to export");
+		return;
+	}
+
+	std::thread *pNewThread = new std::thread([root = std::move(*root)]()
+	{
+		std::string jsonStr = root.dump(2);
+
+		std::vector<uint8_t> compressedBytes;
+		if (!gzipCompressToMemory(jsonStr, compressedBytes))
+		{
+			NetworkLog(ELogVerbosity::LOG_RELEASE, "[stats] In-memory gzip compression failed for live match stats");
+			return;
+		}
+
+		NGMP_OnlineServicesManager *pOnlineServicesMgr = NGMP_OnlineServicesManager::GetInstance();
+		if (pOnlineServicesMgr != nullptr)
+		{
+			pOnlineServicesMgr->CacheStatsBytes(compressedBytes);
+		}
+	});
+
+	std::scoped_lock<std::mutex> lock(s_statsThreadsMutex);
+	s_statsThreads.push_back(pNewThread);
+}
+
+//-----------------------------------------------------------------------------
+
+void StatsExporterWaitForThreads()
+{
+	std::scoped_lock<std::mutex> lock(s_statsThreadsMutex);
+
+	for (std::thread *pThread : s_statsThreads)
+	{
+		if (pThread != nullptr && pThread->joinable())
+		{
+			pThread->join();
+			delete pThread;
+		}
+	}
+
+	s_statsThreads.clear();
 }

@@ -15,6 +15,7 @@
 #include "surfaceclass.h"
 #include "dx8wrapper.h"
 #include <mutex>
+#include "Common/StatsExporter.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
@@ -312,6 +313,15 @@ void NGMP_OnlineServicesManager::CommitReplay(AsciiString absoluteReplayPath)
 	}
 }
 
+void NGMP_OnlineServicesManager::CommitGameStats(AsciiString replayFileName)
+{
+	NGMP_OnlineServicesManager* pOnlineServicesMgr = NGMP_OnlineServicesManager::GetInstance();
+	if (pOnlineServicesMgr == nullptr)
+		return;
+
+	ExportGameStatsToMemory(replayFileName);
+}
+
 void NGMP_OnlineServicesManager::WaitForScreenshotThreads()
 {
 	std::scoped_lock<std::mutex> lock(m_mutexScreenshotThreads);
@@ -339,6 +349,10 @@ void NGMP_OnlineServicesManager::Shutdown()
 	// First, wait for all screenshot threads to complete
 	// This prevents race conditions where threads might still be using resources
 	WaitForScreenshotThreads();
+
+	// Wait for any stats threads to safely complete and join before tearing down managers
+	NetworkLog(ELogVerbosity::LOG_RELEASE, "[NGMP] Waiting for stats exporter background threads...");
+	StatsExporterWaitForThreads();
 	
 	// Shutdown and completely destroy WebSocket BEFORE cleaning up HTTPManager
 	// This is critical because WebSocket has curl handles that must be freed
@@ -998,6 +1012,24 @@ void NGMP_OnlineServicesManager::Tick()
                 // clear data
                 NGMP_OnlineServicesManager::GetInstance()->m_vecCachedReplayBytes.clear();
                 NGMP_OnlineServicesManager::GetInstance()->m_strCacheReplay_S3URI = std::string();
+            }
+        }
+
+        if (!m_vecCachedStatsBytes.empty()) // we have stats data waiting
+        {
+            if (!m_strCacheStats_S3URI.empty()) // and we have a URL
+            {
+                // do the upload
+                std::map<std::string, std::string> mapHeaders;
+                mapHeaders["Content-Type"] = "application/gzip";
+                NGMP_OnlineServicesManager::GetInstance()->GetHTTPManager()->SendS3PUTRequest(m_strCacheStats_S3URI.c_str(), EIPProtocolVersion::DONT_CARE, mapHeaders, m_vecCachedStatsBytes, [=](bool bSuccess, int statusCode, std::string strBody, HTTPRequest* pReq)
+                    {
+                        NetworkLog(ELogVerbosity::LOG_RELEASE, "Replay stats upload, result: %d", statusCode);
+                    }, nullptr, HTTP_UPLOAD_TIMEOUT);
+
+                // clear data
+                NGMP_OnlineServicesManager::GetInstance()->m_vecCachedStatsBytes.clear();
+                NGMP_OnlineServicesManager::GetInstance()->m_strCacheStats_S3URI = std::string();
             }
         }
 	}
