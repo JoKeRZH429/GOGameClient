@@ -856,38 +856,6 @@ void ExportGameStatsJSONToDisk(const AsciiString& replayDir, const AsciiString& 
 		fflush(stdout);
 	}
 
-	// Upload gzip file to server if URL configured
-	if (!TheGlobalData->m_statsUrl.isEmpty())
-	{
-		FILE *f = fopen(statsPath.str(), "rb");
-		if (f != nullptr)
-		{
-			fseek(f, 0, SEEK_END);
-			long fileSize = ftell(f);
-			fseek(f, 0, SEEK_SET);
-			if (fileSize > 0)
-			{
-				void *fileData = malloc(static_cast<size_t>(fileSize));
-				if (fileData != nullptr)
-				{
-					if (fread(fileData, 1, static_cast<size_t>(fileSize), f) == static_cast<size_t>(fileSize))
-					{
-						printf("[stats] Uploading %ld bytes to %s\n", fileSize, TheGlobalData->m_statsUrl.str());
-						fflush(stdout);
-						UploadStatsToServer(TheGlobalData->m_statsUrl, fileData, static_cast<unsigned int>(fileSize), GetGameLogicRandomSeed());
-					}
-					free(fileData);
-				}
-			}
-			fclose(f);
-		}
-		else
-		{
-			printf("[stats] ERROR: Failed to read %s for upload\n", statsPath.str());
-			fflush(stdout);
-		}
-	}
-
 	s_state.resetData();
 	s_state.exportingActive = FALSE;
 }
