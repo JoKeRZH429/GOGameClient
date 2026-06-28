@@ -117,7 +117,7 @@ int ReplaySimulation::simulateReplaysInThisProcess(const std::vector<AsciiString
 					realTimeSec/60, realTimeSec%60, gameTimeSec/60, gameTimeSec%60, totalTimeSec/60, totalTimeSec%60);
 			fflush(stdout);
 			if (TheGlobalData->m_exportStats)
-				ExportGameStatsJSON(TheRecorder->getReplayDir(), filename);
+				ExportGameStatsJSONToDisk(TheRecorder->getReplayDir(), filename);
 		}
 		else
 		{

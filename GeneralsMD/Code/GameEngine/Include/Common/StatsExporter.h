@@ -22,10 +22,10 @@ class Object;
 class Player;
 class DamageInfo;
 
-/// Export game statistics as a JSON file alongside the replay file.
+/// Export game statistics as a JSON file to disk alongside the replay file.
 /// @param replayDir Directory containing replays (e.g. "[UserDataPath]/Replays/")
 /// @param replayFileName Replay filename with extension (e.g. "LastReplay.rep")
-void ExportGameStatsJSON(const AsciiString& replayDir, const AsciiString& replayFileName);
+void ExportGameStatsJSONToDisk(const AsciiString& replayDir, const AsciiString& replayFileName)
 
 /// Collect a time-series snapshot of all players' stats (called every game logic frame).
 /// Snapshots are taken every 30 frames (~1 second) and stored in memory.

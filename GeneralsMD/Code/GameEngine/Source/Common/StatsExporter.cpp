@@ -34,6 +34,7 @@
 
 #include <stdio.h>
 #include <zlib.h>
+#include <vector>
 
 #include "GameNetwork/GeneralsOnline/json.hpp"
 
@@ -262,11 +263,14 @@ static void initPlayerMapping()
 
 void StatsExporterCollectSnapshot()
 {
+	if (!s_state.exportingActive)
+		return;
+	
 	if (ThePlayerList == nullptr || TheGameLogic == nullptr)
 		return;
 
 	UnsignedInt currentFrame = TheGameLogic->getFrame();
-	if (!s_state.snapshots.empty() && (currentFrame - s_state.lastSnapshotFrame) < 30)
+	if (!s_state.snapshots.empty() && (currentFrame - s_state.lastSnapshotFrame) < 60)
 		return;
 
 	s_state.lastSnapshotFrame = currentFrame;
@@ -706,28 +710,17 @@ static ordered_json buildTimeSeriesJson()
 
 //-----------------------------------------------------------------------------
 
-void ExportGameStatsJSON(const AsciiString& replayDir, const AsciiString& replayFileName)
+static std::optional<ordered_json> buildGameStatsJson(const AsciiString& replayFileName)
 {
+	if (!s_state.exportingActive)
+		return std::nullopt;
+
 	if (ThePlayerList == nullptr || TheGameLogic == nullptr || TheGlobalData == nullptr)
-		return;
-
-	// Strip any directory components from the replay filename
-	const char *replayBase = replayFileName.str();
-	const char *lastSlash = strrchr(replayBase, '/');
-	const char *lastBackslash = strrchr(replayBase, '\\');
-	if (lastBackslash != nullptr && (lastSlash == nullptr || lastBackslash > lastSlash))
-		lastSlash = lastBackslash;
-	if (lastSlash != nullptr)
-		replayBase = lastSlash + 1;
-
-	// Build stats file path: replace .rep extension with .gamestats.json.gz
-	char baseName[_MAX_PATH + 1];
-	strlcpy(baseName, replayBase, ARRAY_SIZE(baseName));
-	char *dot = strrchr(baseName, '.');
-	if (dot != nullptr) *dot = '\0';
-
-	AsciiString statsPath;
-	statsPath.format("%s%s.gamestats.json.gz", replayDir.str(), baseName);
+	{
+		s_state.resetData();
+		s_state.exportingActive = FALSE;
+		return std::nullopt;
+	}
 
 	initPlayerMapping();
 
@@ -735,7 +728,7 @@ void ExportGameStatsJSON(const AsciiString& replayDir, const AsciiString& replay
 
 	// Build JSON document
 	ordered_json root;
-	root["version"] = 1;
+	root["version"] = 2;
 
 	// Game info
 	root["game"] = ordered_json{
@@ -810,7 +803,43 @@ void ExportGameStatsJSON(const AsciiString& replayDir, const AsciiString& replay
 	buildStateChangeEventsJson(root);
 	root["timeSeries"] = buildTimeSeriesJson();
 
-	std::string jsonStr = root.dump(2);
+	return root;
+}
+
+//-----------------------------------------------------------------------------
+
+void ExportGameStatsJSONToDisk(const AsciiString& replayDir, const AsciiString& replayFileName)
+{
+	// Strip any directory components from the replay filename
+	const char *replayBase = replayFileName.str();
+	const char *lastSlash = strrchr(replayBase, '/');
+	const char *lastBackslash = strrchr(replayBase, '\\');
+	if (lastBackslash != nullptr && (lastSlash == nullptr || lastBackslash > lastSlash))
+		lastSlash = lastBackslash;
+	if (lastSlash != nullptr)
+		replayBase = lastSlash + 1;
+
+	// Build stats file path: replace .rep extension with .gamestats.json.gz
+	char baseName[_MAX_PATH + 1];
+	strlcpy(baseName, replayBase, ARRAY_SIZE(baseName));
+	char *dot = strrchr(baseName, '.');
+	if (dot != nullptr) *dot = '\0';
+
+	AsciiString statsPath;
+	statsPath.format("%s%s.gamestats.json.gz", replayDir.str(), baseName);
+
+	std::optional<ordered_json> root = buildGameStatsJson(replayFileName);
+
+	if (!root.has_value())
+	{
+		printf("[stats] Skipping write for %s: no stats data to export\n", statsPath.str());
+		fflush(stdout);
+		s_state.resetData();
+		s_state.exportingActive = FALSE;
+		return;
+	}
+
+	std::string jsonStr = root->dump(2);
 
 	// Write gzip-compressed output to file
 	printf("[stats] Writing %u bytes JSON to %s\n", static_cast<unsigned int>(jsonStr.size()), statsPath.str());
