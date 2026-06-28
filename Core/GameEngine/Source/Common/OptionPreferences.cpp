@@ -261,6 +261,18 @@ Bool OptionPreferences::getArchiveReplaysEnabled() const
 	return FALSE;
 }
 
+Bool OptionPreferences::getExportGameStatsEnabled() const
+{
+	OptionPreferences::const_iterator it = find("ExportGameStats");
+	if (it == end())
+		return TRUE; // Default to enabled
+
+	if (stricmp(it->second.str(), "no") == 0) {
+		return FALSE;
+	}
+	return TRUE;
+}
+
 Bool OptionPreferences::getAlternateMouseModeEnabled()
 {
 	OptionPreferences::const_iterator it = find("UseAlternateMouse");

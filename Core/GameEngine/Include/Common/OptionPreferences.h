@@ -68,6 +68,7 @@ public:
 	void setLANIPAddress(UnsignedInt IP);
 	void setOnlineIPAddress(UnsignedInt IP);
 	Bool getArchiveReplaysEnabled() const;
+	Bool getExportGameStatsEnabled() const;
 	Bool getAlternateMouseModeEnabled();
 	Bool getRetaliationModeEnabled();
 	Bool getDoubleClickAttackMoveEnabled();
